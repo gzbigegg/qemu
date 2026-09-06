@@ -2,6 +2,7 @@
  * ESP32-C3 SoC and machine
  *
  * Copyright (c) 2019-2022 Espressif Systems (Shanghai) Co. Ltd.
+ * Modified by GEmu contributors on 2026-08-31 to wire GPIO IRQ and bridge lines.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 or
@@ -47,6 +48,7 @@
 #include "hw/misc/esp32c3_ds.h"
 #include "hw/misc/esp32c3_xts_aes.h"
 #include "hw/misc/esp32c3_jtag.h"
+#include "hw/misc/gemu_gpio_bridge.h"
 #include "hw/dma/esp32c3_gdma.h"
 #include "hw/display/esp_rgb.h"
 #include "hw/net/can/esp32c3_twai.h"
@@ -73,6 +75,7 @@ struct Esp32C3MachineState {
     ESP32C3IntMatrixState intmatrix;
     ESP32C3UARTState uart[ESP32C3_UART_COUNT];
     ESP32C3GPIOState gpio;
+    GEmuGPIOBridgeState gpio_bridge;
     ESP32C3CacheState cache;
     ESP32C3EfuseState efuse;
     ESP32C3ClockState clock;
@@ -406,6 +409,8 @@ static void esp32c3_machine_init(MachineState *machine)
 
     object_initialize_child(OBJECT(machine), "intmatrix", &ms->intmatrix, TYPE_ESP32C3_INTMATRIX);
     object_initialize_child(OBJECT(machine), "gpio", &ms->gpio, TYPE_ESP32C3_GPIO);
+    object_initialize_child(OBJECT(machine), "gemu-gpio-bridge",
+                            &ms->gpio_bridge, TYPE_GEMU_GPIO_BRIDGE);
     object_initialize_child(OBJECT(machine), "extmem", &ms->cache, TYPE_ESP32C3_CACHE);
     object_initialize_child(OBJECT(machine), "efuse", &ms->efuse, TYPE_ESP32C3_EFUSE);
     object_initialize_child(OBJECT(machine), "clock", &ms->clock, TYPE_ESP32C3_CLOCK);
@@ -490,6 +495,23 @@ static void esp32c3_machine_init(MachineState *machine)
         sysbus_realize(SYS_BUS_DEVICE(&ms->gpio), &error_fatal);
         MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(&ms->gpio), 0);
         memory_region_add_subregion_overlap(sys_mem, DR_REG_GPIO_BASE, mr, 0);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&ms->gpio), 0,
+                           qdev_get_gpio_in(intmatrix_dev,
+                                            ETS_GPIO_INTR_SOURCE));
+        qdev_realize(DEVICE(&ms->gpio_bridge), NULL, &error_fatal);
+        for (int pin = 0; pin < GEMU_GPIO_BRIDGE_PIN_COUNT; pin++) {
+            qdev_connect_gpio_out_named(
+                DEVICE(&ms->gpio), "level", pin,
+                qdev_get_gpio_in_named(DEVICE(&ms->gpio_bridge), "level",
+                                       pin));
+            qdev_connect_gpio_out_named(
+                DEVICE(&ms->gpio), "output-enable", pin,
+                qdev_get_gpio_in_named(DEVICE(&ms->gpio_bridge),
+                                       "output-enable", pin));
+            qdev_connect_gpio_out_named(
+                DEVICE(&ms->gpio_bridge), "input", pin,
+                qdev_get_gpio_in_named(DEVICE(&ms->gpio), "input", pin));
+        }
     }
 
     /* (Extmem) Cache realization */

@@ -1,3 +1,8 @@
+/*
+ * Modified by GEmu contributors on 2026-08-31 to allow SoC-specific MMIO ops.
+ * This work remains under the license terms documented by the QEMU source tree.
+ */
+
 #pragma once
 
 #include "hw/sysbus.h"
@@ -24,4 +29,6 @@ typedef struct Esp32GpioState {
 
 typedef struct Esp32GpioClass {
     SysBusDeviceClass parent_class;
+
+    const MemoryRegionOps *ops;
 } Esp32GpioClass;
